@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f7f1e6">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>時間使用紀錄</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="assets/icon-192.png">
+    <link rel="stylesheet" href="styles.css?v=13">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Weekly Time Log</p>
+          <h1>時間使用紀錄</h1>
+        </div>
+        <button class="icon-button" id="todayButton" type="button" aria-label="回到本週" title="回到本週">
+          <span aria-hidden="true">◎</span>
+        </button>
+      </header>
+
+      <section class="week-tools" aria-label="週次切換與操作">
+        <button class="tool-button" id="prevWeek" type="button" aria-label="上一週">‹</button>
+        <button class="week-label" id="weekLabel" type="button"></button>
+        <button class="tool-button" id="nextWeek" type="button" aria-label="下一週">›</button>
+        <button class="tool-button text-tool" id="exportButton" type="button">匯出</button>
+      </section>
+
+      <section class="focus-timer" id="focusTimer" aria-label="專注計時器">
+        <div class="cat-scene" aria-hidden="true">
+          <div class="cat-static small-cat">
+            <img src="assets/cat-static.png" alt="">
+          </div>
+        </div>
+        <div class="timer-copy">
+          <span class="summary-label" id="timerStatus">專注計時</span>
+          <strong id="timerElapsed">00:00:00</strong>
+        </div>
+        <button class="primary-button" id="timerStart" type="button">開始</button>
+        <button class="danger-button timer-end" id="timerEnd" type="button" disabled>結束</button>
+      </section>
+
+      <section class="focus-overlay" id="focusOverlay" aria-label="全螢幕專注計時" hidden>
+        <div class="focus-time-pair">
+          <div class="focus-time-card">
+            <span>開始時間</span>
+            <strong id="focusStartTime">--:--</strong>
+          </div>
+          <button class="focus-time-card focus-time-action" id="focusEndControl" type="button">
+            <span>結束時間</span>
+            <strong id="focusEndTime">點一下結束</strong>
+          </button>
+        </div>
+        <div class="focus-elapsed">
+          <span>經過時間</span>
+          <strong id="focusElapsedTime">00:00:00</strong>
+        </div>
+        <div class="focus-cat-wrap" aria-hidden="true">
+          <div class="cat-layered focus-cat">
+            <img class="cat-tail-img" src="assets/cat-tail.png" alt="">
+            <img class="cat-body-img" src="assets/cat-body.png" alt="">
+          </div>
+        </div>
+      </section>
+
+      <main class="calendar-wrap">
+        <div class="day-strip" id="dayStrip" aria-label="一週七天"></div>
+        <div class="calendar" id="calendar" aria-label="拖拉建立時間塊">
+          <div class="time-axis" id="timeAxis"></div>
+          <div class="day-grid" id="dayGrid"></div>
+        </div>
+      </main>
+
+      <section class="summary-panel" aria-label="本週摘要">
+        <div>
+          <span class="summary-label">本週已記錄</span>
+          <strong id="weekTotal">0 分</strong>
+        </div>
+        <div>
+          <span class="summary-label">最多時間</span>
+          <strong id="topActivity">尚無資料</strong>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="eventModal" hidden>
+      <form class="modal" id="eventForm">
+        <div class="modal-head">
+          <h2 id="modalTitle">新增時間塊</h2>
+          <button class="icon-button small" id="closeModal" type="button" aria-label="關閉">×</button>
+        </div>
+        <label>
+          <span>做了什麼？</span>
+          <input id="activityInput" name="activity" type="text" maxlength="80" placeholder="例如：讀書、通勤、健身">
+        </label>
+        <div class="time-row">
+          <label>
+            <span>開始</span>
+            <input id="startInput" name="start" type="time" step="60">
+          </label>
+          <label>
+            <span>結束</span>
+            <input id="endInput" name="end" type="time" step="60">
+          </label>
+        </div>
+        <label>
+          <span>分類</span>
+          <select id="categoryInput" name="category">
+            <option>工作</option>
+            <option>學習</option>
+            <option>休息</option>
+            <option>運動</option>
+            <option>社交</option>
+            <option>家務</option>
+            <option>娛樂</option>
+            <option>其他</option>
+          </select>
+        </label>
+        <label>
+          <span>備註</span>
+          <textarea id="noteInput" name="note" rows="3" placeholder="可留空"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button class="danger-button" id="deleteEvent" type="button">刪除</button>
+          <button class="ghost-button" id="cancelModal" type="button">取消</button>
+          <button class="primary-button" type="submit">儲存</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="modal-backdrop" id="exportModal" hidden>
+      <section class="modal export-modal" aria-label="匯出資料">
+        <div class="modal-head">
+          <h2>輸出與分析</h2>
+          <button class="icon-button small" id="closeExport" type="button" aria-label="關閉">×</button>
+        </div>
+        <p class="helper-text">可下載檔案，或複製摘要貼到 GPT / Telegram，請它分析你的時間使用模式。</p>
+        <div class="export-actions">
+          <button class="primary-button" id="downloadJson" type="button">下載 JSON</button>
+          <button class="ghost-button" id="downloadCsv" type="button">下載 CSV</button>
+          <button class="ghost-button" id="copyPrompt" type="button">複製 GPT 摘要</button>
+          <button class="ghost-button" id="shareText" type="button">分享文字</button>
+        </div>
+        <textarea id="exportPreview" rows="10" readonly></textarea>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js?v=6"></script>
+  </body>
+</html>
