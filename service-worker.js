@@ -1,9 +1,9 @@
-const CACHE_NAME = "weekly-time-log-v3";
+const CACHE_NAME = "weekly-time-log-v4";
 const APP_ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=14",
-  "./app.js?v=7",
+  "./styles.css?v=15",
+  "./app.js?v=8",
   "./manifest.json",
   "./assets/cat-body.png",
   "./assets/cat-tail.png",
@@ -30,6 +30,22 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  const wantsHtml = event.request.mode === "navigate"
+    || event.request.headers.get("accept")?.includes("text/html");
+
+  if (wantsHtml) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) =>

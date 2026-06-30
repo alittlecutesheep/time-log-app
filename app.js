@@ -13,7 +13,6 @@ const categoryColors = {
 const state = {
   weekStart: startOfWeek(new Date()),
   entries: loadEntries(),
-  pendingDraft: null,
   draft: null,
   editingId: null,
   timer: {
@@ -21,9 +20,6 @@ const state = {
     intervalId: null
   }
 };
-
-const DRAFT_HOLD_MS = 220;
-const DRAFT_SCROLL_TOLERANCE = 10;
 
 const els = {
   weekLabel: document.querySelector("#weekLabel"),
@@ -148,8 +144,14 @@ function renderGrid() {
     const column = document.createElement("div");
     column.className = "day-column";
     column.dataset.date = dateKey(date);
-    column.addEventListener("pointerdown", startDraft);
     els.dayGrid.appendChild(column);
+
+    const rail = document.createElement("button");
+    rail.type = "button";
+    rail.className = "day-drag-rail";
+    rail.setAttribute("aria-label", "Create time block");
+    rail.addEventListener("pointerdown", startDraft);
+    column.appendChild(rail);
 
     state.entries
       .filter((entry) => entry.date === column.dataset.date)
@@ -190,49 +192,20 @@ function renderSummary() {
 function startDraft(event) {
   if (event.button !== 0 && event.pointerType === "mouse") return;
   if (event.target.closest(".time-block")) return;
-
-  if (event.pointerType !== "mouse") {
-    startPendingDraft(event);
-    return;
-  }
+  if (state.draft) return;
+  const column = event.currentTarget.closest(".day-column");
+  if (!column) return;
 
   beginDraft({
-    column: event.currentTarget,
+    column,
+    control: event.currentTarget,
     pointerId: event.pointerId,
     clientY: event.clientY,
     preventDefault: () => event.preventDefault()
   });
 }
 
-function startPendingDraft(event) {
-  if (state.pendingDraft || state.draft) return;
-
-  const column = event.currentTarget;
-  state.pendingDraft = {
-    column,
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    clientY: event.clientY,
-    timerId: setTimeout(() => {
-      if (!state.pendingDraft) return;
-      beginDraft({
-        column,
-        pointerId: event.pointerId,
-        clientY: state.pendingDraft.clientY,
-        listenersAttached: true,
-        preventDefault: () => {}
-      });
-    }, DRAFT_HOLD_MS)
-  };
-
-  column.addEventListener("pointermove", handleDraftPointerMove);
-  column.addEventListener("pointerup", handleDraftPointerUp);
-  column.addEventListener("pointercancel", handleDraftPointerCancel);
-}
-
-function beginDraft({ column, pointerId, clientY, listenersAttached = false, preventDefault }) {
-  cancelPendingDraft(false);
+function beginDraft({ column, control = column, pointerId, clientY, listenersAttached = false, preventDefault }) {
   const startY = pointerYInColumnClientY(clientY, column);
   const draftEl = document.createElement("div");
   draftEl.className = "draft-block";
@@ -240,6 +213,7 @@ function beginDraft({ column, pointerId, clientY, listenersAttached = false, pre
 
   state.draft = {
     column,
+    control,
     element: draftEl,
     pointerId,
     date: column.dataset.date,
@@ -249,54 +223,24 @@ function beginDraft({ column, pointerId, clientY, listenersAttached = false, pre
 
   preventDefault();
   els.calendar?.classList.add("is-drafting");
-  column.setPointerCapture(pointerId);
+  control.setPointerCapture(pointerId);
   updateDraftBlock();
   if (!listenersAttached) {
-    column.addEventListener("pointermove", handleDraftPointerMove);
-    column.addEventListener("pointerup", handleDraftPointerUp);
-    column.addEventListener("pointercancel", handleDraftPointerCancel);
+    control.addEventListener("pointermove", handleDraftPointerMove);
+    control.addEventListener("pointerup", handleDraftPointerUp);
+    control.addEventListener("pointercancel", handleDraftPointerCancel);
   }
 }
 
 function handleDraftPointerMove(event) {
-  if (state.pendingDraft) {
-    const distance = Math.hypot(event.clientX - state.pendingDraft.startX, event.clientY - state.pendingDraft.startY);
-    state.pendingDraft.clientY = event.clientY;
-    if (distance > DRAFT_SCROLL_TOLERANCE) cancelPendingDraft(true);
-    return;
-  }
-
   moveDraft(event);
 }
 
 function handleDraftPointerUp(event) {
-  if (state.pendingDraft) {
-    const pending = state.pendingDraft;
-    const distance = Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY);
-    if (distance <= DRAFT_SCROLL_TOLERANCE) {
-      beginDraft({
-        column: pending.column,
-        pointerId: pending.pointerId,
-        clientY: pending.startY,
-        listenersAttached: true,
-        preventDefault: () => event.preventDefault()
-      });
-      finishDraft(event);
-    } else {
-      cancelPendingDraft(true);
-    }
-    return;
-  }
-
   finishDraft(event);
 }
 
 function handleDraftPointerCancel() {
-  if (state.pendingDraft) {
-    cancelPendingDraft(true);
-    return;
-  }
-
   cancelDraft();
 }
 
@@ -335,27 +279,15 @@ function cancelDraft() {
 }
 
 function cleanupDraftListeners() {
-  const { column, pointerId } = state.draft;
-  column.removeEventListener("pointermove", handleDraftPointerMove);
-  column.removeEventListener("pointerup", handleDraftPointerUp);
-  column.removeEventListener("pointercancel", handleDraftPointerCancel);
+  const { column, control, pointerId } = state.draft;
+  const target = control || column;
+  target.removeEventListener("pointermove", handleDraftPointerMove);
+  target.removeEventListener("pointerup", handleDraftPointerUp);
+  target.removeEventListener("pointercancel", handleDraftPointerCancel);
   els.calendar?.classList.remove("is-drafting");
-  if (column.hasPointerCapture?.(pointerId)) {
-    column.releasePointerCapture(pointerId);
+  if (target.hasPointerCapture?.(pointerId)) {
+    target.releasePointerCapture(pointerId);
   }
-}
-
-function cancelPendingDraft(removeListeners) {
-  if (!state.pendingDraft) return;
-
-  const { column, timerId } = state.pendingDraft;
-  clearTimeout(timerId);
-  if (removeListeners) {
-    column.removeEventListener("pointermove", handleDraftPointerMove);
-    column.removeEventListener("pointerup", handleDraftPointerUp);
-    column.removeEventListener("pointercancel", handleDraftPointerCancel);
-  }
-  state.pendingDraft = null;
 }
 
 function pointerYInColumn(event, column) {
@@ -778,6 +710,9 @@ function showToast(message) {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+    navigator.serviceWorker
+      .register("./service-worker.js")
+      .then((registration) => registration.update())
+      .catch(() => {});
   });
 }
