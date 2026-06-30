@@ -12,7 +12,6 @@
   --blue: #426c9f;
   --shadow: 0 18px 48px rgba(58, 45, 28, 0.15);
   --hour-height: 52px;
-  --rail-width: 12px;
 }
 
 * {
@@ -1076,6 +1075,10 @@ button:disabled {
   touch-action: none;
 }
 
+.calendar.is-axis-scrolling {
+  overscroll-behavior: contain;
+}
+
 .time-axis,
 .day-grid {
   position: relative;
@@ -1085,6 +1088,11 @@ button:disabled {
 .time-axis {
   background: var(--surface);
   border-right: 1px solid var(--line);
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .hour-label {
@@ -1109,7 +1117,7 @@ button:disabled {
   position: relative;
   min-width: 0;
   height: 100%;
-  touch-action: pan-y;
+  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -1119,34 +1127,11 @@ button:disabled {
   touch-action: none;
 }
 
-.day-drag-rail {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 4;
-  width: var(--rail-width);
-  border: 0;
-  border-left: 1px solid rgba(22, 122, 107, 0.14);
-  background:
-    radial-gradient(circle at 50% 8px, rgba(22, 122, 107, 0.5) 0 1.5px, transparent 2px) 0 0 / 100% 18px,
-    rgba(22, 122, 107, 0.045);
-  cursor: ns-resize;
-  touch-action: none;
-  -webkit-touch-callout: none;
-}
-
-.day-drag-rail:active {
-  background:
-    radial-gradient(circle at 50% 8px, rgba(22, 122, 107, 0.85) 0 1.8px, transparent 2.4px) 0 0 / 100% 18px,
-    rgba(22, 122, 107, 0.12);
-}
-
 .time-block,
 .draft-block {
   position: absolute;
   left: 4px;
-  right: calc(var(--rail-width) + 4px);
+  right: 4px;
   z-index: 3;
   border-radius: 7px;
   padding: 6px;
@@ -1345,10 +1330,6 @@ button:disabled {
 }
 
 @media (max-width: 420px) {
-  :root {
-    --rail-width: 10px;
-  }
-
   .app-shell {
     padding-left: 10px;
     padding-right: 10px;
@@ -1388,7 +1369,7 @@ button:disabled {
   .time-block,
   .draft-block {
     left: 2px;
-    right: calc(var(--rail-width) + 3px);
+    right: 2px;
     padding: 5px;
   }
 

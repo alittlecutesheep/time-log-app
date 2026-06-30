@@ -14,6 +14,7 @@ const state = {
   weekStart: startOfWeek(new Date()),
   entries: loadEntries(),
   draft: null,
+  axisScroll: null,
   editingId: null,
   timer: {
     startedAt: null,
@@ -102,6 +103,7 @@ function bindEvents() {
   els.downloadCsv.addEventListener("click", downloadCsv);
   els.copyPrompt.addEventListener("click", copyPrompt);
   els.shareText.addEventListener("click", shareText);
+  els.timeAxis.addEventListener("pointerdown", startAxisScroll);
 }
 
 function render() {
@@ -144,14 +146,8 @@ function renderGrid() {
     const column = document.createElement("div");
     column.className = "day-column";
     column.dataset.date = dateKey(date);
+    column.addEventListener("pointerdown", startDraft);
     els.dayGrid.appendChild(column);
-
-    const rail = document.createElement("button");
-    rail.type = "button";
-    rail.className = "day-drag-rail";
-    rail.setAttribute("aria-label", "Create time block");
-    rail.addEventListener("pointerdown", startDraft);
-    column.appendChild(rail);
 
     state.entries
       .filter((entry) => entry.date === column.dataset.date)
@@ -193,16 +189,59 @@ function startDraft(event) {
   if (event.button !== 0 && event.pointerType === "mouse") return;
   if (event.target.closest(".time-block")) return;
   if (state.draft) return;
-  const column = event.currentTarget.closest(".day-column");
+  const column = event.currentTarget;
   if (!column) return;
 
   beginDraft({
     column,
-    control: event.currentTarget,
+    control: column,
     pointerId: event.pointerId,
     clientY: event.clientY,
     preventDefault: () => event.preventDefault()
   });
+}
+
+function startAxisScroll(event) {
+  if (event.button !== 0 && event.pointerType === "mouse") return;
+  if (state.draft || state.axisScroll) return;
+
+  state.axisScroll = {
+    pointerId: event.pointerId,
+    startY: event.clientY,
+    scrollTop: els.calendar.scrollTop
+  };
+
+  event.preventDefault();
+  els.calendar.classList.add("is-axis-scrolling");
+  els.timeAxis.setPointerCapture(event.pointerId);
+  els.timeAxis.addEventListener("pointermove", moveAxisScroll);
+  els.timeAxis.addEventListener("pointerup", finishAxisScroll);
+  els.timeAxis.addEventListener("pointercancel", finishAxisScroll);
+}
+
+function moveAxisScroll(event) {
+  if (!state.axisScroll) return;
+  event.preventDefault();
+  const delta = event.clientY - state.axisScroll.startY;
+  els.calendar.scrollTop = clamp(
+    state.axisScroll.scrollTop - delta,
+    0,
+    els.calendar.scrollHeight - els.calendar.clientHeight
+  );
+}
+
+function finishAxisScroll() {
+  if (!state.axisScroll) return;
+
+  const { pointerId } = state.axisScroll;
+  els.timeAxis.removeEventListener("pointermove", moveAxisScroll);
+  els.timeAxis.removeEventListener("pointerup", finishAxisScroll);
+  els.timeAxis.removeEventListener("pointercancel", finishAxisScroll);
+  els.calendar.classList.remove("is-axis-scrolling");
+  if (els.timeAxis.hasPointerCapture?.(pointerId)) {
+    els.timeAxis.releasePointerCapture(pointerId);
+  }
+  state.axisScroll = null;
 }
 
 function beginDraft({ column, control = column, pointerId, clientY, listenersAttached = false, preventDefault }) {
