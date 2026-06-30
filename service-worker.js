@@ -1,9 +1,9 @@
-const CACHE_NAME = "weekly-time-log-v2";
+const CACHE_NAME = "weekly-time-log-v3";
 const APP_ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=13",
-  "./app.js?v=6",
+  "./styles.css?v=14",
+  "./app.js?v=7",
   "./manifest.json",
   "./assets/cat-body.png",
   "./assets/cat-tail.png",

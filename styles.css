@@ -1070,6 +1070,11 @@ button:disabled {
   touch-action: pan-y;
 }
 
+.calendar.is-drafting {
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+
 .time-axis,
 .day-grid {
   position: relative;
@@ -1103,6 +1108,14 @@ button:disabled {
   position: relative;
   min-width: 0;
   height: 100%;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.calendar.is-drafting .day-column {
+  touch-action: none;
 }
 
 .time-block,

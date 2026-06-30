@@ -13,6 +13,7 @@ const categoryColors = {
 const state = {
   weekStart: startOfWeek(new Date()),
   entries: loadEntries(),
+  pendingDraft: null,
   draft: null,
   editingId: null,
   timer: {
@@ -20,6 +21,9 @@ const state = {
     intervalId: null
   }
 };
+
+const DRAFT_HOLD_MS = 220;
+const DRAFT_SCROLL_TOLERANCE = 10;
 
 const els = {
   weekLabel: document.querySelector("#weekLabel"),
@@ -36,6 +40,7 @@ const els = {
   focusEndTime: document.querySelector("#focusEndTime"),
   focusElapsedTime: document.querySelector("#focusElapsedTime"),
   focusEndControl: document.querySelector("#focusEndControl"),
+  calendar: document.querySelector("#calendar"),
   dayStrip: document.querySelector("#dayStrip"),
   timeAxis: document.querySelector("#timeAxis"),
   dayGrid: document.querySelector("#dayGrid"),
@@ -186,8 +191,49 @@ function startDraft(event) {
   if (event.button !== 0 && event.pointerType === "mouse") return;
   if (event.target.closest(".time-block")) return;
 
+  if (event.pointerType !== "mouse") {
+    startPendingDraft(event);
+    return;
+  }
+
+  beginDraft({
+    column: event.currentTarget,
+    pointerId: event.pointerId,
+    clientY: event.clientY,
+    preventDefault: () => event.preventDefault()
+  });
+}
+
+function startPendingDraft(event) {
+  if (state.pendingDraft || state.draft) return;
+
   const column = event.currentTarget;
-  const startY = pointerYInColumn(event, column);
+  state.pendingDraft = {
+    column,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    clientY: event.clientY,
+    timerId: setTimeout(() => {
+      if (!state.pendingDraft) return;
+      beginDraft({
+        column,
+        pointerId: event.pointerId,
+        clientY: state.pendingDraft.clientY,
+        listenersAttached: true,
+        preventDefault: () => {}
+      });
+    }, DRAFT_HOLD_MS)
+  };
+
+  column.addEventListener("pointermove", handleDraftPointerMove);
+  column.addEventListener("pointerup", handleDraftPointerUp);
+  column.addEventListener("pointercancel", handleDraftPointerCancel);
+}
+
+function beginDraft({ column, pointerId, clientY, listenersAttached = false, preventDefault }) {
+  cancelPendingDraft(false);
+  const startY = pointerYInColumnClientY(clientY, column);
   const draftEl = document.createElement("div");
   draftEl.className = "draft-block";
   column.appendChild(draftEl);
@@ -195,22 +241,68 @@ function startDraft(event) {
   state.draft = {
     column,
     element: draftEl,
-    pointerId: event.pointerId,
+    pointerId,
     date: column.dataset.date,
     start: snapMinutes(yToMinutes(startY)),
     end: snapMinutes(yToMinutes(startY + 30))
   };
 
-  event.preventDefault();
-  column.setPointerCapture(event.pointerId);
+  preventDefault();
+  els.calendar?.classList.add("is-drafting");
+  column.setPointerCapture(pointerId);
   updateDraftBlock();
-  column.addEventListener("pointermove", moveDraft);
-  column.addEventListener("pointerup", finishDraft);
-  column.addEventListener("pointercancel", cancelDraft);
+  if (!listenersAttached) {
+    column.addEventListener("pointermove", handleDraftPointerMove);
+    column.addEventListener("pointerup", handleDraftPointerUp);
+    column.addEventListener("pointercancel", handleDraftPointerCancel);
+  }
+}
+
+function handleDraftPointerMove(event) {
+  if (state.pendingDraft) {
+    const distance = Math.hypot(event.clientX - state.pendingDraft.startX, event.clientY - state.pendingDraft.startY);
+    state.pendingDraft.clientY = event.clientY;
+    if (distance > DRAFT_SCROLL_TOLERANCE) cancelPendingDraft(true);
+    return;
+  }
+
+  moveDraft(event);
+}
+
+function handleDraftPointerUp(event) {
+  if (state.pendingDraft) {
+    const pending = state.pendingDraft;
+    const distance = Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY);
+    if (distance <= DRAFT_SCROLL_TOLERANCE) {
+      beginDraft({
+        column: pending.column,
+        pointerId: pending.pointerId,
+        clientY: pending.startY,
+        listenersAttached: true,
+        preventDefault: () => event.preventDefault()
+      });
+      finishDraft(event);
+    } else {
+      cancelPendingDraft(true);
+    }
+    return;
+  }
+
+  finishDraft(event);
+}
+
+function handleDraftPointerCancel() {
+  if (state.pendingDraft) {
+    cancelPendingDraft(true);
+    return;
+  }
+
+  cancelDraft();
 }
 
 function moveDraft(event) {
   if (!state.draft) return;
+  event.preventDefault();
   state.draft.end = snapMinutes(yToMinutes(pointerYInColumn(event, state.draft.column)));
   updateDraftBlock();
 }
@@ -244,17 +336,35 @@ function cancelDraft() {
 
 function cleanupDraftListeners() {
   const { column, pointerId } = state.draft;
-  column.removeEventListener("pointermove", moveDraft);
-  column.removeEventListener("pointerup", finishDraft);
-  column.removeEventListener("pointercancel", cancelDraft);
+  column.removeEventListener("pointermove", handleDraftPointerMove);
+  column.removeEventListener("pointerup", handleDraftPointerUp);
+  column.removeEventListener("pointercancel", handleDraftPointerCancel);
+  els.calendar?.classList.remove("is-drafting");
   if (column.hasPointerCapture?.(pointerId)) {
     column.releasePointerCapture(pointerId);
   }
 }
 
+function cancelPendingDraft(removeListeners) {
+  if (!state.pendingDraft) return;
+
+  const { column, timerId } = state.pendingDraft;
+  clearTimeout(timerId);
+  if (removeListeners) {
+    column.removeEventListener("pointermove", handleDraftPointerMove);
+    column.removeEventListener("pointerup", handleDraftPointerUp);
+    column.removeEventListener("pointercancel", handleDraftPointerCancel);
+  }
+  state.pendingDraft = null;
+}
+
 function pointerYInColumn(event, column) {
+  return pointerYInColumnClientY(event.clientY, column);
+}
+
+function pointerYInColumnClientY(clientY, column) {
   const rect = column.getBoundingClientRect();
-  return clamp(event.clientY - rect.top, 0, hourToY(24));
+  return clamp(clientY - rect.top, 0, hourToY(24));
 }
 
 function updateDraftBlock() {
