@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+def runNumber = Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+
+android {
+    namespace 'io.github.alittlecutesheep.eyerest'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'io.github.alittlecutesheep.eyerest'
+        minSdk 26
+        targetSdk 35
+        versionCode runNumber
+        versionName "1.0.${runNumber}"
+    }
+
+    // 自行安裝用的簽章：每次打包都用同一把金鑰，新版才能直接覆蓋安裝舊版
+    signingConfigs {
+        sideload {
+            storeFile file('sideload.keystore')
+            storeType 'pkcs12'
+            storePassword 'eyerest'
+            keyAlias 'eyerest'
+            keyPassword 'eyerest'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.sideload
+        }
+        debug {
+            signingConfig signingConfigs.sideload
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
