@@ -68,7 +68,16 @@ final class Notifier {
             return b.build();
         }
 
-        String cycle = "每 " + Prefs.intervalMin(c) + " 分鐘 · 休息 " + Fmt.restLabel(Prefs.restSec(c));
+        String cycle = Fmt.cycle(c);
+        if (Engine.isPaused(c)) {
+            long left = Math.max(0L, Prefs.workTarget(c) - Prefs.workUsed(c));
+            b.setContentTitle("計時暫停 · 還剩 " + Fmt.countdown(left))
+                    .setContentText("螢幕使用時間模式：解鎖後繼續計時")
+                    .setShowWhen(false)
+                    .addAction(action(c, "重新計時", ActionReceiver.ACTION_RESET, 11))
+                    .addAction(action(c, "關閉提醒", ActionReceiver.ACTION_DISABLE, 12));
+            return b.build();
+        }
         switch (phase) {
             case Prefs.PHASE_REST:
                 b.setContentTitle("休息中 · " + time + " 結束")
@@ -83,7 +92,8 @@ final class Notifier {
                 break;
             default:
                 boolean toQuiet = Quiet.active(c, end);
-                b.setContentTitle(toQuiet ? time + " 進入勿擾時段" : "下次休息 " + time)
+                String next = Engine.screenMode(c) ? "持續使用的話 " + time + " 休息" : "下次休息 " + time;
+                b.setContentTitle(toQuiet ? time + " 進入勿擾時段" : next)
                         .setContentText(cycle);
                 countdown(b, end);
                 b.addAction(action(c, "重新計時", ActionReceiver.ACTION_RESET, 11));

@@ -13,6 +13,9 @@ import android.provider.Settings;
 
 /**
  * 計時狀態機：WORK（用眼中）→ REST（休息中）→ WORK …，勿擾時段內停在 QUIET。
+ *
+ * WORK 階段以「累積時間」計算：workUsed 是之前已累積的量，segmentStart 是這段計時的起點。
+ * 實際時間模式下一路累積到底；螢幕使用時間模式下，螢幕關閉或鎖定時暫停，解鎖後接著算。
  * 每個階段結束時間都用精確鬧鐘喚醒，就算 app 被系統收掉也能準時跳出。
  * 所有方法都在主執行緒呼叫。
  */
@@ -31,6 +34,30 @@ final class Engine {
         return System.currentTimeMillis();
     }
 
+    static boolean screenMode(Context c) {
+        return Prefs.countMode(c) == Prefs.COUNT_SCREEN;
+    }
+
+    /** 螢幕開著而且已經解鎖。 */
+    static boolean screenInUse(Context c) {
+        PowerManager pm = c.getSystemService(PowerManager.class);
+        KeyguardManager km = c.getSystemService(KeyguardManager.class);
+        boolean interactive = pm == null || pm.isInteractive();
+        boolean locked = km != null && km.isKeyguardLocked();
+        return interactive && !locked;
+    }
+
+    static boolean isPaused(Context c) {
+        return Prefs.enabled(c) && Prefs.phase(c) == Prefs.PHASE_WORK && Prefs.workPaused(c);
+    }
+
+    /** 這一輪已經累積的用眼時間。 */
+    static long workElapsed(Context c, long now) {
+        long used = Prefs.workUsed(c);
+        if (!Prefs.workPaused(c)) used += Math.max(0L, now - Prefs.segmentStart(c));
+        return used;
+    }
+
     // ---- 使用者操作 ----
 
     static void enable(Context c) {
@@ -42,10 +69,7 @@ final class Engine {
     }
 
     static void disable(Context c, boolean showOffNotice) {
-        long now = now();
-        if (Prefs.enabled(c) && Prefs.phase(c) == Prefs.PHASE_WORK) {
-            Stats.addWork(c, Prefs.phaseStart(c), now);
-        }
+        creditWork(c, now());
         Prefs.setEnabled(c, false);
         cancelAlarm(c);
         Notifier.cancelBreak(c);
@@ -59,7 +83,7 @@ final class Engine {
     static void restartCycle(Context c) {
         if (!Prefs.enabled(c)) return;
         long now = now();
-        if (Prefs.phase(c) == Prefs.PHASE_WORK) Stats.addWork(c, Prefs.phaseStart(c), now);
+        creditWork(c, now);
         Notifier.cancelBreak(c);
         startWork(c, now);
         changed(c);
@@ -69,7 +93,7 @@ final class Engine {
     static void restNow(Context c) {
         if (!Prefs.enabled(c) || Prefs.phase(c) != Prefs.PHASE_WORK) return;
         long now = now();
-        Stats.addWork(c, Prefs.phaseStart(c), now);
+        creditWork(c, now);
         startRest(c, now);
         changed(c);
     }
@@ -80,7 +104,13 @@ final class Engine {
         else changed(c);
     }
 
-    /** 勿擾時段改了：保留目前這一輪的起點，重新算結束時間。 */
+    /** 計時方式改了：保留這一輪已累積的時間，依新的方式繼續。 */
+    static void onCountModeChanged(Context c) {
+        sync(c);
+        changed(c);
+    }
+
+    /** 勿擾時段改了：保留這一輪已累積的時間，重新算結束時間。 */
     static void onQuietChanged(Context c) {
         if (!Prefs.enabled(c)) {
             changed(c);
@@ -88,17 +118,15 @@ final class Engine {
         }
         long now = now();
         int phase = Prefs.phase(c);
-        if (phase == Prefs.PHASE_WORK) {
-            long start = Prefs.phaseStart(c);
+        if (phase == Prefs.PHASE_WORK && !Prefs.workPaused(c)) {
             if (Quiet.active(c, now)) {
-                Stats.addWork(c, start, now);
+                creditWork(c, now);
                 enterQuiet(c, now);
             } else {
-                long end = Math.max(now + 3_000L, start + Prefs.intervalMin(c) * 60_000L);
-                long quietAt = Quiet.nextStart(c, now);
-                if (quietAt > 0 && quietAt < end) end = quietAt;
-                Prefs.setPhase(c, Prefs.PHASE_WORK, start, end);
-                scheduleAlarm(c, end);
+                long used = workElapsed(c, now);
+                Stats.addWork(c, Prefs.segmentStart(c), now);
+                Prefs.setWork(c, Prefs.workTarget(c), used, now, false);
+                runWork(c, now, 3_000L);
             }
         } else if (phase == Prefs.PHASE_QUIET) {
             if (Quiet.active(c, now)) enterQuiet(c, now);
@@ -107,10 +135,45 @@ final class Engine {
         changed(c);
     }
 
+    // ---- 螢幕開關（螢幕使用時間模式） ----
+
+    /** 前景服務收到螢幕開／關／解鎖時呼叫。 */
+    static void onScreenChanged(Context c) {
+        if (!Prefs.enabled(c) || Prefs.phase(c) != Prefs.PHASE_WORK) return;
+        long now = now();
+        boolean paused = Prefs.workPaused(c);
+        boolean shouldCount = !screenMode(c) || screenInUse(c);
+        if (paused && shouldCount) {
+            resumeWork(c, now);
+            changed(c);
+        } else if (!paused && !shouldCount) {
+            pauseWork(c, now);
+            changed(c);
+        }
+    }
+
+    private static void pauseWork(Context c, long now) {
+        long used = workElapsed(c, now);
+        Stats.addWork(c, Prefs.segmentStart(c), now);
+        Prefs.setWork(c, Prefs.workTarget(c), used, now, true);
+        // phaseEnd 只拿來顯示「還剩多久」
+        Prefs.setPhase(c, Prefs.PHASE_WORK, now - used, now + Math.max(0L, Prefs.workTarget(c) - used));
+        cancelAlarm(c);
+    }
+
+    private static void resumeWork(Context c, long now) {
+        if (Quiet.active(c, now)) {
+            enterQuiet(c, now);
+            return;
+        }
+        Prefs.setWork(c, Prefs.workTarget(c), Prefs.workUsed(c), now, false);
+        runWork(c, now, 0L);
+    }
+
     // ---- 鬧鐘與同步 ----
 
     static void onAlarm(Context c) {
-        if (!Prefs.enabled(c)) {
+        if (!Prefs.enabled(c) || isPaused(c)) {
             cancelAlarm(c);
             return;
         }
@@ -125,10 +188,31 @@ final class Engine {
         ensureService(c);
     }
 
-    /** App 開啟或服務重啟時呼叫：補上錯過的階段切換，並確保鬧鐘還在。 */
+    /** App 開啟或服務重啟時呼叫：補上錯過的切換，並確保鬧鐘還在。 */
     static void sync(Context c) {
         if (!Prefs.enabled(c)) return;
         long now = now();
+        if (Prefs.phase(c) == Prefs.PHASE_WORK && Prefs.workTarget(c) <= 0) {
+            // 舊版留下的狀態沒有累積資訊：直接從頭開始一輪
+            startWork(c, now);
+            changed(c);
+            return;
+        }
+        if (Prefs.phase(c) == Prefs.PHASE_WORK) {
+            boolean shouldCount = !screenMode(c) || screenInUse(c);
+            if (Prefs.workPaused(c)) {
+                if (shouldCount) {
+                    resumeWork(c, now);
+                    changed(c);
+                }
+                return;
+            }
+            if (!shouldCount) {
+                pauseWork(c, now);
+                changed(c);
+                return;
+            }
+        }
         long end = Prefs.phaseEnd(c);
         if (end <= 0) {
             startWork(c, now);
@@ -161,7 +245,12 @@ final class Engine {
     private static void advance(Context c, long now) {
         switch (Prefs.phase(c)) {
             case Prefs.PHASE_WORK:
-                Stats.addWork(c, Prefs.phaseStart(c), now);
+                if (screenMode(c) && !screenInUse(c) && !Quiet.active(c, now)) {
+                    // 漏接了關螢幕事件：先暫停，解鎖後再跳出休息
+                    pauseWork(c, now);
+                    break;
+                }
+                creditWork(c, now);
                 if (Quiet.active(c, now)) enterQuiet(c, now);
                 else startRest(c, now);
                 break;
@@ -177,26 +266,51 @@ final class Engine {
 
     // ---- 階段切換 ----
 
+    /** 把目前這段用眼時間記進統計。 */
+    private static void creditWork(Context c, long now) {
+        if (Prefs.enabled(c) && Prefs.phase(c) == Prefs.PHASE_WORK && !Prefs.workPaused(c)) {
+            Stats.addWork(c, Prefs.segmentStart(c), now);
+        }
+    }
+
     private static void startWork(Context c, long now) {
         if (Quiet.active(c, now)) {
             enterQuiet(c, now);
             return;
         }
-        long end = now + Prefs.intervalMin(c) * 60_000L;
+        long target = Prefs.intervalMin(c) * 60_000L;
+        if (screenMode(c) && !screenInUse(c)) {
+            // 螢幕沒在用：先停著，解鎖後才開始算
+            Prefs.setWork(c, target, 0L, now, true);
+            Prefs.setPhase(c, Prefs.PHASE_WORK, now, now + target);
+            cancelAlarm(c);
+            return;
+        }
+        Prefs.setWork(c, target, 0L, now, false);
+        runWork(c, now, 0L);
+    }
+
+    /** 依剩下的量排定這一輪的結束時間；遇到勿擾時段會提早結束。 */
+    private static void runWork(Context c, long now, long minRemaining) {
+        long used = Prefs.workUsed(c);
+        long remaining = Math.max(minRemaining, Prefs.workTarget(c) - used);
+        long end = now + remaining;
         long quietAt = Quiet.nextStart(c, now);
         if (quietAt > 0 && quietAt < end) end = quietAt;
-        Prefs.setPhase(c, Prefs.PHASE_WORK, now, end);
+        Prefs.setPhase(c, Prefs.PHASE_WORK, now - used, end);
         scheduleAlarm(c, end);
     }
 
     private static void enterQuiet(Context c, long now) {
         long end = Quiet.endAfter(c, now);
+        Prefs.setWork(c, 0L, 0L, now, false);
         Prefs.setPhase(c, Prefs.PHASE_QUIET, now, end);
         scheduleAlarm(c, end);
     }
 
     private static void startRest(Context c, long now) {
         long end = now + Prefs.restSec(c) * 1000L;
+        Prefs.setWork(c, 0L, 0L, now, false);
         Prefs.setPhase(c, Prefs.PHASE_REST, now, end);
         scheduleAlarm(c, end);
         if (Prefs.vibrateStart(c)) Vibes.tick(c);

@@ -9,6 +9,10 @@ final class Prefs {
     static final int PHASE_REST = 1;
     static final int PHASE_QUIET = 2;
 
+    /** 計時方式：實際經過時間，或只算螢幕開著且已解鎖的時間。 */
+    static final int COUNT_CLOCK = 0;
+    static final int COUNT_SCREEN = 1;
+
     static final String DEFAULT_TITLE = "讓眼睛休息一下";
     static final String DEFAULT_MESSAGE = "離開螢幕，看看遠方，慢慢眨眼。";
 
@@ -34,6 +38,14 @@ final class Prefs {
 
     static void setRestSec(Context c, int v) {
         sp(c).edit().putInt("rest_sec", v).apply();
+    }
+
+    static int countMode(Context c) {
+        return sp(c).getInt("count_mode", COUNT_CLOCK);
+    }
+
+    static void setCountMode(Context c, int v) {
+        sp(c).edit().putInt("count_mode", v).apply();
     }
 
     // ---- 提醒文字 ----
@@ -141,6 +153,37 @@ final class Prefs {
                 .putInt("phase", phase)
                 .putLong("phase_start", start)
                 .putLong("phase_end", end)
+                .commit();
+    }
+
+    // ---- 這一輪用眼計時（WORK 階段） ----
+
+    /** 這一輪要累積多久才休息（毫秒）。 */
+    static long workTarget(Context c) {
+        return sp(c).getLong("work_target", 0L);
+    }
+
+    /** 這一輪在目前這段計時之前已經累積的時間（毫秒）。 */
+    static long workUsed(Context c) {
+        return sp(c).getLong("work_used", 0L);
+    }
+
+    /** 目前這段計時從什麼時候開始（暫停時沒有意義）。 */
+    static long segmentStart(Context c) {
+        return sp(c).getLong("seg_start", 0L);
+    }
+
+    /** 螢幕使用時間模式下，螢幕關閉或鎖定時暫停。 */
+    static boolean workPaused(Context c) {
+        return sp(c).getBoolean("work_paused", false);
+    }
+
+    static void setWork(Context c, long target, long used, long segmentStart, boolean paused) {
+        sp(c).edit()
+                .putLong("work_target", target)
+                .putLong("work_used", used)
+                .putLong("seg_start", segmentStart)
+                .putBoolean("work_paused", paused)
                 .commit();
     }
 

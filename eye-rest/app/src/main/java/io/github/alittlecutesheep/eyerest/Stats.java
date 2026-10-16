@@ -69,8 +69,8 @@ final class Stats {
     /** 今天的用眼時間，包含正在進行中的這一輪。 */
     static long workToday(Context ctx, long now) {
         long total = Prefs.sp(ctx).getLong("w_" + dayKey(now), 0L);
-        if (Prefs.enabled(ctx) && Prefs.phase(ctx) == Prefs.PHASE_WORK) {
-            long from = Math.max(Prefs.phaseStart(ctx), startOfDay(now));
+        if (Prefs.enabled(ctx) && Prefs.phase(ctx) == Prefs.PHASE_WORK && !Prefs.workPaused(ctx)) {
+            long from = Math.max(Prefs.segmentStart(ctx), startOfDay(now));
             if (now > from) total += now - from;
         }
         return total;

@@ -37,6 +37,7 @@ public class RestTileService extends TileService {
 
     static String subtitle(Context c) {
         if (!Prefs.enabled(c)) return "已關閉";
+        if (Engine.isPaused(c)) return "暫停中";
         String time = Fmt.clock(Prefs.phaseEnd(c));
         switch (Prefs.phase(c)) {
             case Prefs.PHASE_REST:

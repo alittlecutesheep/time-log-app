@@ -286,7 +286,7 @@ public class MainActivity extends Activity {
         int interval = Prefs.intervalMin(this);
 
         toggle.setChecked(on, false);
-        toggleSub.setText("每 " + interval + " 分鐘 · 休息 " + Fmt.restLabel(Prefs.restSec(this)));
+        toggleSub.setText(Fmt.cycle(this));
         Ui.setEnabledLook(resetButton, on);
         Ui.setEnabledLook(restButton, on && phase == Prefs.PHASE_WORK);
 
@@ -315,14 +315,27 @@ public class MainActivity extends Activity {
             ringLabel.setText("RESUME AT");
             setCountdown(Fmt.clock(end));
             ringSub.setText("勿擾時段中，不會提醒");
+        } else if (Prefs.workPaused(this)) {
+            // 螢幕使用時間模式：螢幕關閉或鎖定時暫停（開著 app 時通常很快就會恢復）
+            long target = Math.max(1L, Prefs.workTarget(this));
+            long used = Prefs.workUsed(this);
+            setStatus("PAUSED", "暫停中", Ui.TEXT_2, false);
+            ring.setShowHead(false);
+            ring.setProgress(used / (float) target);
+            ringLabel.setText("PAUSED");
+            setCountdown(Fmt.countdown(target - used));
+            ringSub.setText("螢幕關閉或鎖定時暫停計時");
         } else {
-            setStatus("RUNNING", "計時中", Ui.RED, true);
+            boolean screen = Engine.screenMode(this);
+            setStatus("RUNNING", screen ? "螢幕使用計時中" : "計時中", Ui.RED, true);
             ring.setShowHead(true);
             ring.setProgress((now - start) / span);
             boolean toQuiet = Quiet.active(this, end);
-            ringLabel.setText(toQuiet ? "QUIET IN" : "NEXT BREAK");
+            ringLabel.setText(toQuiet ? "QUIET IN" : screen ? "SCREEN TIME LEFT" : "NEXT BREAK");
             setCountdown(Fmt.countdown(end - now));
-            ringSub.setText(Fmt.clock(end) + (toQuiet ? " 進入勿擾時段" : " 休息"));
+            if (toQuiet) ringSub.setText(Fmt.clock(end) + " 進入勿擾時段");
+            else if (screen) ringSub.setText("關螢幕會暫停 · 持續使用 " + Fmt.clock(end) + " 休息");
+            else ringSub.setText(Fmt.clock(end) + " 休息");
         }
 
         breaksValue.setText(Fmt.twoDigits(Stats.breaks(this, now)));
@@ -357,7 +370,7 @@ public class MainActivity extends Activity {
             return;
         }
         warnCard.setVisibility(View.VISIBLE);
-        if (!overlay) warnText.setText("尚未允許「顯示在其他應用程式上層」，使用其他 app 時休息畫面無法自動跳出");
+        if (!overlay) warnText.setText("尚未允許「重疊顯示於其他應用程式上方」，使用其他 app 時休息畫面無法自動跳出。開關是灰色的話，點這裡看解鎖步驟");
         else warnText.setText("通知已關閉，鎖定畫面時無法跳出休息畫面，也看不到通知欄開關");
     }
 

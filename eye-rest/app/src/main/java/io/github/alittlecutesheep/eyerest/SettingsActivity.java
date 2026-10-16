@@ -115,7 +115,21 @@ public class SettingsActivity extends Activity {
         col.addView(section("01", "TIMER", "計時"), sectionLp());
         LinearLayout card = Ui.card(this);
 
-        card.addView(rowTitle("用眼間隔", "每隔多久跳出休息畫面。修改後會重新開始計時。"), Ui.matchWrap());
+        card.addView(rowTitle("計時方式",
+                "實際時間：不管螢幕開關都持續計時。\n螢幕使用時間：只在螢幕開著且已解鎖時計時，關螢幕或鎖定就暫停，解鎖後接著算。"),
+                Ui.matchWrap());
+        SegmentedView mode = new SegmentedView(this, new String[]{"實際時間", "螢幕使用時間"}, Prefs.countMode(this));
+        mode.setListener(i -> {
+            Prefs.setCountMode(this, i);
+            Engine.onCountModeChanged(this);
+        });
+        LinearLayout.LayoutParams modeLp = Ui.matchWrap();
+        modeLp.topMargin = Ui.dp(this, 14);
+        card.addView(mode, modeLp);
+
+        card.addView(divider(), dividerLp());
+
+        card.addView(rowTitle("用眼間隔", "累積多久跳出休息畫面。修改後會重新開始計時。"), Ui.matchWrap());
         StepperView interval = new StepperView(this, INTERVALS, false, Prefs.intervalMin(this),
                 new StepperView.Format() {
                     @Override
@@ -280,10 +294,17 @@ public class SettingsActivity extends Activity {
         LinearLayout card = Ui.card(this);
         String pkg = "package:" + getPackageName();
 
-        addPermission(card, "顯示在其他應用程式上層",
+        Runnable openOverlay = () -> open(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse(pkg)));
+        addPermission(card, "重疊顯示於其他應用程式上方",
                 "讓休息畫面能在你使用其他 app 時直接跳出。",
-                () -> Settings.canDrawOverlays(this),
-                () -> open(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse(pkg))), true);
+                () -> Settings.canDrawOverlays(this), openOverlay, true);
+        if (Build.VERSION.SDK_INT >= 33) {
+            View guide = restrictedGuide(openOverlay);
+            card.addView(guide, Ui.matchWrap());
+            Runnable refreshGuide = () -> guide.setVisibility(Settings.canDrawOverlays(this) ? View.GONE : View.VISIBLE);
+            refreshGuide.run();
+            permissionRefreshers.add(refreshGuide);
+        }
 
         addPermission(card, "通知",
                 "通知欄的倒數與開關，以及鎖定畫面時的全螢幕提醒。",
@@ -335,6 +356,63 @@ public class SettingsActivity extends Activity {
         card.addView(tileRow, Ui.matchWrap());
 
         col.addView(card, Ui.matchWrap());
+    }
+
+    /**
+     * 從瀏覽器下載安裝的 app，Android 13 起會把部分權限列為「受限制的設定」，開關變成灰色。
+     * 要先在應用程式資訊頁「允許受限制的設定」才能打開。
+     */
+    private View restrictedGuide(Runnable openOverlay) {
+        LinearLayout box = Ui.column(this);
+        box.setBackground(Ui.rounded(0xFF050505, 0xFF2E2E2E, Ui.dpf(this, 18), Ui.dp(this, 1)));
+        int p = Ui.dp(this, 16);
+        box.setPadding(p, p, p, p);
+
+        box.addView(Ui.heading(this, "開關是灰色的、打不開？", 15), Ui.wrap());
+        TextView why = Ui.text(this,
+                "這是 Android 對「從瀏覽器下載安裝的 App」的保護（受限制的設定），不是 App 壞掉。照下面做一次就好：",
+                12.5f, Ui.TEXT_2);
+        why.setPadding(0, Ui.dp(this, 6), 0, Ui.dp(this, 4));
+        box.addView(why, Ui.matchWrap());
+
+        String[] steps = {
+                "點「重疊顯示設定」，在那一頁先點一下灰色的開關，跳出「受限制的設定」後按「確定」。",
+                "點「應用程式資訊」，按右上角「⋮」→「允許受限制的設定」，再驗證指紋或密碼。",
+                "回到「重疊顯示設定」，把開關打開就完成了。",
+        };
+        for (int i = 0; i < steps.length; i++) {
+            LinearLayout row = Ui.row(this);
+            row.setGravity(Gravity.TOP);
+            TextView idx = Ui.label(this, String.valueOf(i + 1));
+            idx.setTextColor(Ui.RED);
+            idx.setPadding(0, Ui.dp(this, 2), Ui.dp(this, 12), 0);
+            row.addView(idx, Ui.wrap());
+            row.addView(Ui.text(this, steps[i], 13, Ui.TEXT), Ui.weight(1f));
+            LinearLayout.LayoutParams lp = Ui.matchWrap();
+            lp.topMargin = Ui.dp(this, 10);
+            box.addView(row, lp);
+        }
+
+        LinearLayout buttons = Ui.row(this);
+        TextView overlay = Ui.pill(this, "重疊顯示設定", false);
+        overlay.setTextSize(14);
+        overlay.setOnClickListener(v -> openOverlay.run());
+        TextView info = Ui.pill(this, "應用程式資訊", false);
+        info.setTextSize(14);
+        info.setOnClickListener(v -> open(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName()))));
+        buttons.addView(overlay, Ui.weight(1f));
+        LinearLayout.LayoutParams infoLp = Ui.weight(1f);
+        infoLp.leftMargin = Ui.dp(this, 8);
+        buttons.addView(info, infoLp);
+        LinearLayout.LayoutParams buttonsLp = Ui.matchWrap();
+        buttonsLp.topMargin = Ui.dp(this, 16);
+        box.addView(buttons, buttonsLp);
+
+        LinearLayout wrap = Ui.column(this);
+        wrap.setPadding(0, Ui.dp(this, 14), 0, 0);
+        wrap.addView(box, Ui.matchWrap());
+        return wrap;
     }
 
     private interface Check {

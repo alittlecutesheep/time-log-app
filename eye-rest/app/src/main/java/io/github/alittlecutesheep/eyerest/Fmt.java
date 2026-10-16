@@ -1,5 +1,7 @@
 package io.github.alittlecutesheep.eyerest;
 
+import android.content.Context;
+
 import java.util.Calendar;
 import java.util.Locale;
 
@@ -39,6 +41,12 @@ final class Fmt {
     static String hoursMinutes(long ms) {
         long m = ms / 60000L;
         return String.format(Locale.US, "%d:%02d", m / 60L, m % 60L);
+    }
+
+    /** 例如「每 20 分鐘 · 休息 20 秒」，螢幕使用時間模式為「每使用螢幕 20 分鐘 · 休息 20 秒」。 */
+    static String cycle(Context c) {
+        String every = Prefs.countMode(c) == Prefs.COUNT_SCREEN ? "每使用螢幕 " : "每 ";
+        return every + Prefs.intervalMin(c) + " 分鐘 · 休息 " + restLabel(Prefs.restSec(c));
     }
 
     static String twoDigits(int v) {
